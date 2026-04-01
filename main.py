@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.21.1"
+__generated_with = "0.22.0"
 app = marimo.App(width="medium")
 
 
@@ -590,8 +590,8 @@ def _():
     ) -> go.Figure:
         min_process_noise_std = 0.0
         max_process_noise_std = 3.0
-        min_measurement_std = 0.8
-        max_measurement_std = 3.0
+        min_measurement_std = 1.0
+        max_measurement_std = 5.0
         prediction_var = didactic_prediction_var(step.prior_var, prediction_process_std)
         measurement_var = measurement_std**2
         posterior_mean, posterior_var = fuse_gaussians(
@@ -1141,6 +1141,7 @@ def _():
 
     return (
         DT,
+        FULL_LOOP_NONLINEAR_START,
         HOOK_SEED,
         SIM_MEASUREMENT_STD,
         SIM_PROCESS_STD,
@@ -1148,19 +1149,17 @@ def _():
         STEPS,
         Settings,
         TEACH_STEP,
-        FULL_LOOP_NONLINEAR_START,
         make_ball_story,
         matrix_text,
         mo,
         plot_ball_hook,
-        didactic_prediction_var,
         plot_ekf_outlook,
         plot_full_loop,
         plot_gaussian_intro,
         plot_motion_model_story,
         plot_step_detail,
-        plot_update_story,
         plot_ukf_outlook,
+        plot_update_story,
         run_filter,
         simulate_full_loop_demo,
         simulate_system,
@@ -1170,47 +1169,45 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-        <style>
-        .markdown.prose > * {
-          margin-top: 0.0rem !important;
-          margin-bottom: 0.0rem !important;
-        }
+    mo.md(r"""
+    <style>
+    .markdown.prose > * {
+      margin-top: 0.0rem !important;
+      margin-bottom: 0.0rem !important;
+    }
 
-        .markdown.prose > * + * {
-          margin-top: 0.4rem !important;
-        }
+    .markdown.prose > * + * {
+      margin-top: 0.4rem !important;
+    }
 
-        .markdown.prose .paragraph {
-          display: block !important;
-          margin-top: 0.0rem !important;
-          margin-bottom: 0.0rem !important;
-        }
+    .markdown.prose .paragraph {
+      display: block !important;
+      margin-top: 0.0rem !important;
+      margin-bottom: 0.0rem !important;
+    }
 
-        .markdown.prose h1,
-        .markdown.prose h2,
-        .markdown.prose h3,
-        .markdown.prose h4 {
-          margin-top: 0.0rem !important;
-          margin-bottom: 0.35rem !important;
-        }
+    .markdown.prose h1,
+    .markdown.prose h2,
+    .markdown.prose h3,
+    .markdown.prose h4 {
+      margin-top: 0.0rem !important;
+      margin-bottom: 0.35rem !important;
+    }
 
-        .markdown.prose ul,
-        .markdown.prose ol {
-          margin-top: 0.0rem !important;
-          margin-bottom: 0.0rem !important;
-          padding-top: 0.0rem !important;
-          padding-bottom: 0.0rem !important;
-        }
+    .markdown.prose ul,
+    .markdown.prose ol {
+      margin-top: 0.0rem !important;
+      margin-bottom: 0.0rem !important;
+      padding-top: 0.0rem !important;
+      padding-bottom: 0.0rem !important;
+    }
 
-        .markdown.prose li {
-          margin-top: 0.0rem !important;
-          margin-bottom: 0.0rem !important;
-        }
-        </style>
-        """
-    )
+    .markdown.prose li {
+      margin-top: 0.0rem !important;
+      margin-bottom: 0.0rem !important;
+    }
+    </style>
+    """)
     return
 
 
@@ -1403,8 +1400,8 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     update_measurement_std = mo.ui.slider(
-        start=0.80,
-        stop=3.00,
+        start=1.00,
+        stop=5.00,
         step=0.05,
         value=1.20,
         label="$R$: Measurement noise strength for the update view",
@@ -1532,13 +1529,7 @@ def _(STEPS, TEACH_STEP, mo):
 
 
 @app.cell(hide_code=True)
-def _(
-    initial_pos_std,
-    initial_vel_std,
-    measurement_std,
-    mo,
-    process_std,
-):
+def _(initial_pos_std, initial_vel_std, measurement_std, mo, process_std):
     mo.vstack(
         [
             mo.hstack(
@@ -1612,7 +1603,6 @@ def _(
     return (
         full_loop_run,
         full_loop_simulation,
-        interactive_run,
         interactive_settings,
         interactive_step,
         matrices,
@@ -1624,9 +1614,9 @@ def _(
     FULL_LOOP_NONLINEAR_START,
     full_loop_run,
     full_loop_simulation,
+    inspect_step,
     interactive_settings,
     interactive_step,
-    inspect_step,
     mo,
     plot_full_loop,
     plot_step_detail,
