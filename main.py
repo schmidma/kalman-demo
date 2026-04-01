@@ -13,6 +13,7 @@ def _():
     import numpy as np
     import plotly.graph_objects as go
     from numpy.typing import NDArray
+    from plotly.subplots import make_subplots
 
     Vector = NDArray[np.float64]
     Matrix = NDArray[np.float64]
@@ -901,6 +902,229 @@ def _():
         )
         return fig
 
+    def plot_ekf_outlook() -> go.Figure:
+        ekf_x = np.linspace(-2.2, 2.2, 300)
+        ekf_curve = 0.35 * ekf_x**3 + 0.6 * ekf_x
+        ekf_estimate = 0.8
+        ekf_estimate_y = 0.35 * ekf_estimate**3 + 0.6 * ekf_estimate
+        ekf_slope = 1.05 * ekf_estimate**2 + 0.6
+        ekf_tangent = ekf_estimate_y + ekf_slope * (ekf_x - ekf_estimate)
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=ekf_x,
+                y=ekf_curve,
+                mode="lines",
+                name="Nonlinear model",
+                line={"color": COLORS["true"], "width": 3},
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=ekf_x,
+                y=ekf_tangent,
+                mode="lines",
+                name="Local tangent",
+                line={"color": COLORS["prediction"], "width": 3, "dash": "dash"},
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[ekf_estimate],
+                y=[ekf_estimate_y],
+                mode="markers",
+                name="Current estimate",
+                marker={"color": COLORS["posterior"], "size": 11},
+            )
+        )
+        fig.update_layout(
+            title="EKF intuition: approximate the nonlinear model locally",
+            xaxis_title="state",
+            yaxis_title="measurement space",
+            **theme(),
+        )
+        fig.update_xaxes(gridcolor="#e5e7eb")
+        fig.update_yaxes(gridcolor="#e5e7eb")
+        return fig
+
+    def plot_ukf_outlook() -> go.Figure:
+        def ellipse_points(mean: Vector, cov: Matrix, scale: float = 2.0) -> Matrix:
+            angles = np.linspace(0.0, 2.0 * np.pi, 200)
+            circle = np.vstack([np.cos(angles), np.sin(angles)])
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
+            transform = eigenvectors @ np.diag(np.sqrt(np.maximum(eigenvalues, 1e-9)))
+            return (mean[:, None] + scale * transform @ circle).T
+
+        state_mean = np.array([0.2, -0.25], dtype=np.float64)
+        state_cov = np.array([[0.42, 0.18], [0.18, 0.24]], dtype=np.float64)
+
+        n = 2
+        alpha = 0.85
+        beta = 2.0
+        kappa = 0.0
+        lambda_ = alpha**2 * (n + kappa) - n
+        scaling = n + lambda_
+        eigenvalues, eigenvectors = np.linalg.eigh(state_cov)
+        order = np.argsort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[order]
+        eigenvectors = eigenvectors[:, order]
+        scaled_axes = eigenvectors @ np.diag(
+            np.sqrt(scaling * np.maximum(eigenvalues, 1e-9))
+        )
+
+        sigma_points = [state_mean]
+        for i in range(n):
+            sigma_points.append(state_mean + scaled_axes[:, i])
+            sigma_points.append(state_mean - scaled_axes[:, i])
+        sigma_points = np.array(sigma_points)
+
+        weight_mean = np.full(2 * n + 1, 1.0 / (2.0 * scaling), dtype=np.float64)
+        weight_cov = weight_mean.copy()
+        weight_mean[0] = lambda_ / scaling
+        weight_cov[0] = lambda_ / scaling + (1.0 - alpha**2 + beta)
+
+        def nonlinear_motion(point: Vector) -> Vector:
+            x, y = point
+            return np.array(
+                [x + 0.55 * np.sin(1.4 * y) + 0.28, y + 0.22 * x**2 - 0.12],
+                dtype=np.float64,
+            )
+
+        propagated = np.array([nonlinear_motion(point) for point in sigma_points])
+        propagated_mean = np.sum(weight_mean[:, None] * propagated, axis=0)
+        propagated_cov = np.zeros((2, 2), dtype=np.float64)
+        for weight, point in zip(weight_cov, propagated):
+            delta = point - propagated_mean
+            propagated_cov += weight * np.outer(delta, delta)
+
+        prior_ellipse = ellipse_points(state_mean, state_cov)
+        posterior_ellipse = ellipse_points(propagated_mean, propagated_cov)
+        sigma_labels = ["0", "+x", "-x", "+y", "-y"]
+        prior_axis_1 = np.column_stack(
+            [state_mean - scaled_axes[:, 0], state_mean + scaled_axes[:, 0]]
+        )
+        prior_axis_2 = np.column_stack(
+            [state_mean - scaled_axes[:, 1], state_mean + scaled_axes[:, 1]]
+        )
+
+        fig = make_subplots(
+            rows=1,
+            cols=2,
+            horizontal_spacing=0.10,
+            subplot_titles=(
+                "UKF prior: Gaussian and sigma points",
+                "UKF after propagation: rebuilt Gaussian",
+            ),
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=prior_ellipse[:, 0],
+                y=prior_ellipse[:, 1],
+                mode="lines",
+                name="Prior Gaussian",
+                line={"color": COLORS["measurement"], "width": 3, "dash": "dash"},
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=prior_axis_1[0],
+                y=prior_axis_1[1],
+                mode="lines",
+                name="Ellipse axis",
+                line={"color": "#9ca3af", "width": 1.5, "dash": "dot"},
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=prior_axis_2[0],
+                y=prior_axis_2[1],
+                mode="lines",
+                name="Ellipse axis",
+                line={"color": "#9ca3af", "width": 1.5, "dash": "dot"},
+                showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=sigma_points[:, 0],
+                y=sigma_points[:, 1],
+                mode="markers+text",
+                name="Sigma points",
+                text=sigma_labels,
+                textposition="top center",
+                marker={"color": COLORS["prediction"], "size": 10, "symbol": "diamond"},
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[state_mean[0]],
+                y=[state_mean[1]],
+                mode="markers",
+                name="Prior mean",
+                marker={"color": COLORS["measurement"], "size": 10},
+                showlegend=False,
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=posterior_ellipse[:, 0],
+                y=posterior_ellipse[:, 1],
+                mode="lines",
+                name="Re-estimated Gaussian",
+                line={"color": COLORS["posterior"], "width": 3},
+            ),
+            row=1,
+            col=2,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=propagated[:, 0],
+                y=propagated[:, 1],
+                mode="markers+text",
+                name="Propagated sigma points",
+                text=sigma_labels,
+                textposition="top center",
+                marker={"color": COLORS["posterior"], "size": 10},
+            ),
+            row=1,
+            col=2,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[propagated_mean[0]],
+                y=[propagated_mean[1]],
+                mode="markers",
+                name="Re-estimated mean",
+                marker={"color": COLORS["posterior"], "size": 10},
+            ),
+            row=1,
+            col=2,
+        )
+
+        fig.update_layout(
+            title="UKF intuition: propagate sigma points, then rebuild a Gaussian",
+            **theme(),
+        )
+        fig.update_xaxes(title_text="x-position", gridcolor="#e5e7eb", row=1, col=1)
+        fig.update_xaxes(title_text="x-position", gridcolor="#e5e7eb", row=1, col=2)
+        fig.update_yaxes(title_text="y-position", gridcolor="#e5e7eb", row=1, col=1)
+        fig.update_yaxes(title_text="y-position", gridcolor="#e5e7eb", row=1, col=2)
+        fig.update_yaxes(scaleanchor="x", scaleratio=1, row=1, col=1)
+        fig.update_yaxes(scaleanchor="x2", scaleratio=1, row=1, col=2)
+        return fig
+
     return (
         DT,
         HOOK_SEED,
@@ -916,11 +1140,13 @@ def _():
         mo,
         plot_ball_hook,
         didactic_prediction_var,
+        plot_ekf_outlook,
         plot_full_loop,
         plot_gaussian_intro,
         plot_motion_model_story,
         plot_step_detail,
         plot_update_story,
+        plot_ukf_outlook,
         run_filter,
         simulate_full_loop_demo,
         simulate_system,
@@ -930,8 +1156,54 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
+    mo.md(
+        r"""
+        <style>
+        .markdown.prose > * {
+          margin-top: 0.0rem !important;
+          margin-bottom: 0.0rem !important;
+        }
+
+        .markdown.prose > * + * {
+          margin-top: 0.4rem !important;
+        }
+
+        .markdown.prose .paragraph {
+          display: block !important;
+          margin-top: 0.0rem !important;
+          margin-bottom: 0.0rem !important;
+        }
+
+        .markdown.prose h1,
+        .markdown.prose h2,
+        .markdown.prose h3,
+        .markdown.prose h4 {
+          margin-top: 0.0rem !important;
+          margin-bottom: 0.35rem !important;
+        }
+
+        .markdown.prose ul,
+        .markdown.prose ol {
+          margin-top: 0.0rem !important;
+          margin-bottom: 0.0rem !important;
+          padding-top: 0.0rem !important;
+          padding-bottom: 0.0rem !important;
+        }
+
+        .markdown.prose li {
+          margin-top: 0.0rem !important;
+          margin-bottom: 0.0rem !important;
+        }
+        </style>
+        """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
     mo.md(r"""
-    # Kalman filters as visual reasoning under uncertainty
+    # Kalman Filters: A Brief Visual Introduction
 
     This notebook is built as a short lecture, not as a reference sheet.
 
@@ -1477,8 +1749,20 @@ def _(mo):
     - **EKF**: linearize the nonlinear model around the current estimate
     - **UKF**: propagate representative sigma points instead of linearizing directly
 
-    For this lecture, the important takeaway is not the derivation. It is the continuity of the idea: even in nonlinear filters, we are still balancing prediction and measurement under uncertainty.
+    The figures below separate the two ideas: first EKF as a local tangent approximation, then UKF as a two-step 2D construction with sigma points first and a rebuilt Gaussian after nonlinear propagation.
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo, plot_ekf_outlook):
+    mo.ui.plotly(plot_ekf_outlook())
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo, plot_ukf_outlook):
+    mo.ui.plotly(plot_ukf_outlook())
     return
 
 
