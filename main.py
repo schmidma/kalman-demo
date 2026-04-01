@@ -492,7 +492,7 @@ def _():
         step: StepSummary,
         process_noise_std: float,
     ) -> go.Figure:
-        max_process_noise_std = 1.0
+        max_process_noise_std = 3.0
         shifted_var = step.prior_var
         noisy_var = didactic_prediction_var(step.prior_var, process_noise_std)
         max_noisy_var = didactic_prediction_var(step.prior_var, max_process_noise_std)
@@ -582,12 +582,13 @@ def _():
         prediction_process_std: float,
         measurement_std: float,
         *,
+        show_prior: bool,
         show_prediction: bool,
         show_measurement: bool,
         show_posterior: bool,
     ) -> go.Figure:
         min_process_noise_std = 0.0
-        max_process_noise_std = 1.0
+        max_process_noise_std = 3.0
         min_measurement_std = 0.8
         max_measurement_std = 3.0
         prediction_var = didactic_prediction_var(step.prior_var, prediction_process_std)
@@ -654,6 +655,16 @@ def _():
             ),
         )
         fig = go.Figure()
+        if show_prior:
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=gaussian_pdf(x, step.prior_mean, step.prior_var),
+                    mode="lines",
+                    name="Belief before prediction",
+                    line={"color": "#8b5cf6", "width": 3, "dash": "dashdot"},
+                )
+            )
         if show_prediction:
             fig.add_trace(
                 go.Scatter(
@@ -684,7 +695,7 @@ def _():
                     line={"color": COLORS["posterior"], "width": 4},
                 )
             )
-        if not any([show_prediction, show_measurement, show_posterior]):
+        if not any([show_prior, show_prediction, show_measurement, show_posterior]):
             fig.add_annotation(
                 x=0.5,
                 y=0.5,
@@ -948,17 +959,9 @@ def _(mo):
     mo.md(r"""
     ## 1. Hook: why filtering exists at all
 
-    Imagine a robot trying to intercept the ball.
+    Raw detections are not enough for action.
 
-    - the black curve is the ball's true path,
-    - the blue points are what the camera reports,
-    - the dotted vertical line is the halfway line,
-    - the circle marks the center circle of the field,
-    - the detections are useful, but they jitter,
-    - one bad point can easily appear,
-    - the robot still needs one running estimate of where the ball actually is.
-
-    This is the estimation problem that Kalman filtering solves.
+    Even if the robot only sees noisy ball observations, it still needs one useful running estimate of where the ball actually is.
     """)
     return
 
@@ -1047,14 +1050,7 @@ def _(mo):
 
     In this lecture, the filter's belief is a Gaussian.
 
-    Read the picture like this:
-
-    - the center is the current best guess,
-    - the width is the uncertainty,
-    - a narrow curve means "I am confident",
-    - a wide curve means "I am unsure".
-
-    The key shift in mindset is that the filter is not tracking just one number. It is tracking a **belief** about the hidden state.
+    The center is the estimate, and the spread is the uncertainty. The filter is tracking a **belief**, not just one number.
     """)
     return
 
@@ -1072,17 +1068,7 @@ def _(mo):
 
     Before a Kalman filter can predict anything, it needs a **motion model**.
 
-    This model answers a simple question:
-
-    - if nothing surprising happens,
-    - where should the state move next?
-
-    The cleanest visual story is in two steps:
-
-    1. first, the motion model shifts the whole belief,
-    2. then process noise widens that shifted belief.
-
-    The slider controls how much extra uncertainty the prediction adds.
+    First the model shifts the belief forward. Then process noise widens that shifted belief.
     """)
     return
 
@@ -1091,7 +1077,7 @@ def _(mo):
 def _(mo):
     prediction_process_std = mo.ui.slider(
         start=0.00,
-        stop=1.00,
+        stop=3.00,
         step=0.01,
         value=0.32,
         label="Process noise strength for the prediction view",
@@ -1103,37 +1089,8 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(didactic_prediction_var, prediction_process_std, teaching_step):
-    motion_prediction_var = didactic_prediction_var(
-        teaching_step.prior_var,
-        prediction_process_std.value,
-    )
-    return (motion_prediction_var,)
-
-
-@app.cell(hide_code=True)
-def _(
-    mo,
-    motion_prediction_var,
-    plot_motion_model_story,
-    prediction_process_std,
-    teaching_step,
-):
-    mo.vstack(
-        [
-            mo.md(
-                f"""
-                In this view, the motion model moves the belief center from `{teaching_step.prior_mean:.2f}` to `{teaching_step.pred_mean:.2f}`.
-
-                With process noise strength = `{prediction_process_std.value:.2f}`, the didactic prediction variance in `x` becomes `{motion_prediction_var:.2f}`.
-                """
-            ),
-            mo.ui.plotly(
-                plot_motion_model_story(teaching_step, prediction_process_std.value)
-            ),
-        ],
-        gap=1.0,
-    )
+def _(mo, plot_motion_model_story, prediction_process_std, teaching_step):
+    mo.ui.plotly(plot_motion_model_story(teaching_step, prediction_process_std.value))
     return
 
 
@@ -1142,20 +1099,9 @@ def _(mo):
     mo.md(r"""
     ## 5. Measurement update: combine two imperfect stories
 
-    At one timestep, the filter has two sources of information:
+    The update step fuses the model prediction with the sensor measurement.
 
-    - the **prediction** from the motion model,
-    - the **measurement** from the sensor.
-
-    The update step fuses them into one new belief.
-
-    Use the checkboxes to reveal the three curves one by one:
-
-    1. predicted belief,
-    2. measurement belief,
-    3. updated belief.
-
-    Then vary the measurement uncertainty. A smaller measurement covariance means the blue sensor belief is narrower and pulls the result more strongly.
+    Use the checkboxes to reveal the curves gradually, then vary measurement uncertainty to see how strongly the sensor pulls the result.
     """)
     return
 
@@ -1171,6 +1117,7 @@ def _(mo):
         show_value=True,
         debounce=True,
     )
+    show_prior = mo.ui.checkbox(value=False, label="Show belief before prediction")
     show_prediction = mo.ui.checkbox(value=True, label="Show predicted belief")
     show_measurement = mo.ui.checkbox(value=False, label="Show measurement belief")
     show_posterior = mo.ui.checkbox(value=False, label="Show updated belief")
@@ -1178,14 +1125,20 @@ def _(mo):
         [
             mo.hstack([update_measurement_std], align="start"),
             mo.hstack(
-                [show_prediction, show_measurement, show_posterior],
+                [show_prior, show_prediction, show_measurement, show_posterior],
                 wrap=True,
                 align="start",
             ),
         ],
         gap=0.75,
     )
-    return show_measurement, show_posterior, show_prediction, update_measurement_std
+    return (
+        show_measurement,
+        show_posterior,
+        show_prediction,
+        show_prior,
+        update_measurement_std,
+    )
 
 
 @app.cell(hide_code=True)
@@ -1196,6 +1149,7 @@ def _(
     show_measurement,
     show_posterior,
     show_prediction,
+    show_prior,
     teaching_step,
     update_measurement_std,
 ):
@@ -1204,6 +1158,7 @@ def _(
             teaching_step,
             prediction_process_std.value,
             update_measurement_std.value,
+            show_prior=show_prior.value,
             show_prediction=show_prediction.value,
             show_measurement=show_measurement.value,
             show_posterior=show_posterior.value,
@@ -1217,20 +1172,9 @@ def _(mo):
     mo.md(r"""
     ## 6. The trust knobs: `P`, `Q`, and `R`
 
-    This is the part engineers care about when tuning a filter.
+    This is the practical tuning view.
 
-    In 1D, the three main uncertainties can be introduced very informally:
-
-    - `P`: how unsure am I right now?
-    - `Q`: how much new uncertainty does my motion model add each step?
-    - `R`: how noisy or unreliable is my sensor?
-
-    The plots below show the practical effect.
-
-    - smaller `R` makes the estimate follow measurements more tightly,
-    - larger `R` makes the estimate smoother and more skeptical,
-    - smaller `Q` makes the model more self-confident,
-    - larger `Q` lets measurements pull the estimate more strongly.
+    `P` is current uncertainty, `Q` is model uncertainty, and `R` is measurement uncertainty.
     """)
     return
 
@@ -1300,28 +1244,16 @@ def _(
     mo,
     process_std,
 ):
-    mo.vstack(
+    mo.hstack(
         [
-            mo.md(
-                r"""
-                The dataset below stays fixed. Only the filter assumptions change.
-
-                That is important: you are not changing what happened in the world. You are changing what the filter *believes* about model noise, sensor noise, and its own initial uncertainty.
-                """
-            ),
-            mo.hstack(
-                [
-                    process_std,
-                    measurement_std,
-                    initial_pos_std,
-                    initial_vel_std,
-                    inspect_step,
-                ],
-                wrap=True,
-                align="start",
-            ),
+            process_std,
+            measurement_std,
+            initial_pos_std,
+            initial_vel_std,
+            inspect_step,
         ],
-        gap=1.0,
+        wrap=True,
+        align="start",
     )
     return
 
@@ -1389,25 +1321,6 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(interactive_settings, interactive_step, mo):
-    measurement_message = (
-        f"- a measurement is available at timestep `{interactive_step.index}`, so uncertainty in `x` shrinks from `{interactive_step.pred_var:.2f}` to `{interactive_step.var:.2f}`"
-        if interactive_step.has_measurement
-        else f"- no measurement is available at timestep `{interactive_step.index}`, so the filter keeps the prediction and uncertainty stays at `{interactive_step.var:.2f}`"
-    )
-    mo.md(f"""
-    **Current tuning intuition**
-
-    - `Q` is driven by process std = `{interactive_settings.process_std:.2f}`
-    - `R` is driven by measurement std = `{interactive_settings.measurement_std:.2f}`
-    - initial `P0` starts with position std = `{interactive_settings.initial_pos_std:.2f}` and velocity std = `{interactive_settings.initial_vel_std:.2f}`
-    - at timestep `{interactive_step.index}`, prediction uncertainty in `x` is `{interactive_step.pred_var:.2f}`
-    {measurement_message}
-    """)
-    return
-
-
-@app.cell(hide_code=True)
 def _(
     FULL_LOOP_NONLINEAR_START,
     full_loop_run,
@@ -1422,22 +1335,12 @@ def _(
                 r"""
                 ## 7. The full loop over time
 
-                Once the filter starts running, the same cycle repeats at every timestep:
-
-                1. predict the next state,
-                2. grow uncertainty through the model,
-                3. compare prediction with measurement,
-                4. correct the estimate,
-                5. reduce uncertainty again.
-
                 In this example, the true motion is deliberately chosen in two phases:
 
                 - first a simple, piecewise-linear movement with a direction change,
                 - later a more curved motion that no longer matches our simple prediction model as well.
 
-                Measurements still arrive only at irregular timesteps, which makes the predict-only stretches and correction moments easier to see.
-
-                The green band shows the filter's uncertainty around the estimate, so you can see the state evolution and confidence in one view.
+                Measurements arrive at irregular timesteps, so prediction-only stretches and correction moments become easier to see.
                 """
             ),
             mo.ui.plotly(
@@ -1462,12 +1365,6 @@ def _(interactive_settings, interactive_step, mo, plot_step_detail):
                 r"""
                 ## 8. One timestep in detail
 
-                This is the cleanest place to read the Kalman logic visually:
-
-                - orange: what the model predicted,
-                - blue dotted: what the sensor suggested,
-                - green: what the filter believes after combining both.
-
                 If the selected timestep has no measurement, the plot will show that the filter simply keeps the prediction.
                 """
             ),
@@ -1485,7 +1382,7 @@ def _(mo):
     mo.md(r"""
     ## 9. Minimal formulas after the intuition
 
-    Only now do we introduce the equations, because by this point they should feel familiar.
+    Only now do we introduce the equations, after the visual intuition is already in place.
 
     Prediction:
 
@@ -1511,11 +1408,7 @@ def _(mo):
     P_t = (I - K_t C)\bar{P}_t
     $$
 
-    Conceptually:
-
-    - `Q` grows uncertainty during prediction,
-    - `R` controls how wide the sensor belief is,
-    - `K` decides how strongly the estimate moves toward the measurement.
+    Here `Q` grows uncertainty during prediction, `R` encodes measurement uncertainty, and `K` sets how strongly the estimate moves toward the measurement.
     """)
     return
 
