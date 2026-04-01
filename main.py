@@ -831,6 +831,11 @@ def _():
         x = _step_axis(step, measurement_var)
         ymax_candidates = [
             float(
+                gaussian_pdf(
+                    np.array([step.prior_mean]), step.prior_mean, step.prior_var
+                )[0]
+            ),
+            float(
                 gaussian_pdf(np.array([step.pred_mean]), step.pred_mean, step.pred_var)[
                     0
                 ]
@@ -847,6 +852,15 @@ def _():
             )
         ymax = max(ymax_candidates)
         fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=gaussian_pdf(x, step.prior_mean, step.prior_var),
+                mode="lines",
+                name="Belief before prediction",
+                line={"color": "#8b5cf6", "width": 3, "dash": "dashdot"},
+            )
+        )
         fig.add_trace(
             go.Scatter(
                 x=x,
@@ -1205,9 +1219,11 @@ def _(mo):
     mo.md(r"""
     # Kalman Filters: A Brief Visual Introduction
 
-    This notebook is built as a short lecture, not as a reference sheet.
+    This article is an intuition-first introduction to Kalman filters.
 
-    The main story is simple:
+    It assumes only a basic technical background. The goal is not a full derivation, but a clear feel for what a Kalman filter is doing and why its uncertainty terms matter.
+
+    The core story is simple:
 
     1. the world has a true state,
     2. sensors only give noisy evidence,
@@ -1215,7 +1231,7 @@ def _(mo):
     4. then it corrects that prediction using the latest measurement,
     5. all the while it tracks **how uncertain it is**.
 
-    We start with a RoboCup-style ball tracking picture, then switch to a 1D `x` example so the Gaussian beliefs stay easy to see.
+    We start with a RoboCup-style ball-tracking picture, then switch to a 1D `x` example. That simplification keeps the geometry easy to see without changing the core ideas.
     """)
     return
 
@@ -1233,7 +1249,7 @@ def _(mo):
 
     Raw detections are not enough for action.
 
-    Even if the robot only sees noisy ball observations, it still needs one useful running estimate of where the ball actually is.
+    A robot that reacts directly to jittery measurements will move erratically, hesitate at the wrong time, and make poor interception decisions. Even with noisy observations, it still needs one stable running estimate of where the ball actually is.
     """)
     return
 
@@ -1251,11 +1267,11 @@ def _(mo):
 
     A full ball filter is usually at least 2D, often with velocity and maybe even bounce or friction effects.
 
-    For an intro lecture, that is more geometry than we need.
+    For an introduction, that is more geometry than we need.
 
     So from here on, we only track **one coordinate**: the ball's `x` position.
 
-    That lets us draw the filter's belief directly as a 1D Gaussian curve.
+    That lets us draw the filter's belief directly as a 1D Gaussian curve. Nothing essential is lost conceptually; we are only stripping away visual complexity.
     """)
     return
 
@@ -1320,9 +1336,11 @@ def _(mo):
     mo.md(r"""
     ## 3. Belief as a Gaussian
 
-    In this lecture, the filter's belief is a Gaussian.
+    In this article, the filter's belief is a Gaussian.
 
-    The center is the estimate, and the spread is the uncertainty. The filter is tracking a **belief**, not just one number.
+    The center is the estimate, and the spread is the uncertainty. In plain language, the curve says where the filter thinks the state probably is.
+
+    That is the key shift in perspective: the filter is tracking a **belief**, not just one number.
     """)
     return
 
@@ -1340,7 +1358,9 @@ def _(mo):
 
     Before a Kalman filter can predict anything, it needs a **motion model**.
 
-    First the model shifts the belief forward. Then process noise widens that shifted belief.
+    The motion model encodes what we expect to happen next if nothing surprising occurs. In this simple example, it moves the belief forward in time.
+
+    But even a good model is never perfect. That is why prediction has two effects: it shifts the belief, and it also makes the belief wider.
     """)
     return
 
@@ -1351,8 +1371,8 @@ def _(mo):
         start=0.00,
         stop=3.00,
         step=0.01,
-        value=0.32,
-        label="Process noise strength for the prediction view",
+        value=1.50,
+        label="$Q$: Process noise strength for the prediction view",
         show_value=True,
         debounce=True,
     )
@@ -1373,7 +1393,9 @@ def _(mo):
 
     The update step fuses the model prediction with the sensor measurement.
 
-    Use the checkboxes to reveal the curves gradually, then vary measurement uncertainty to see how strongly the sensor pulls the result.
+    If the measurement is precise, the updated belief moves strongly toward it. If the measurement is noisy, the filter stays closer to its own prediction.
+
+    The controls below let you reveal that logic step by step.
     """)
     return
 
@@ -1385,11 +1407,11 @@ def _(mo):
         stop=3.00,
         step=0.05,
         value=1.20,
-        label="Measurement noise strength for the update view",
+        label="$R$: Measurement noise strength for the update view",
         show_value=True,
         debounce=True,
     )
-    show_prior = mo.ui.checkbox(value=False, label="Show belief before prediction")
+    show_prior = mo.ui.checkbox(value=True, label="Show belief before prediction")
     show_prediction = mo.ui.checkbox(value=True, label="Show predicted belief")
     show_measurement = mo.ui.checkbox(value=False, label="Show measurement belief")
     show_posterior = mo.ui.checkbox(value=False, label="Show updated belief")
@@ -1444,9 +1466,11 @@ def _(mo):
     mo.md(r"""
     ## 6. The trust knobs: `P`, `Q`, and `R`
 
-    This is the practical tuning view.
+    At this point it is useful to name the uncertainty terms that have been implicit in the pictures so far.
 
-    `P` is current uncertainty, `Q` is model uncertainty, and `R` is measurement uncertainty.
+    `P` is the filter's current uncertainty, `Q` is the uncertainty added by the model during prediction, and `R` is the uncertainty of the measurement.
+
+    In practice, tuning a Kalman filter often means deciding how much to trust the model and how much to trust the sensor. The controls below let you see that balance directly.
     """)
     return
 
@@ -1458,7 +1482,7 @@ def _(STEPS, TEACH_STEP, mo):
         stop=1.00,
         step=0.01,
         value=0.32,
-        label="Process uncertainty (std, controls Q)",
+        label="$Q$: Process uncertainty",
         show_value=True,
         debounce=True,
     )
@@ -1467,7 +1491,7 @@ def _(STEPS, TEACH_STEP, mo):
         stop=3.00,
         step=0.05,
         value=1.20,
-        label="Measurement uncertainty (std, controls R)",
+        label="$R$: Measurement uncertainty",
         show_value=True,
         debounce=True,
     )
@@ -1476,7 +1500,7 @@ def _(STEPS, TEACH_STEP, mo):
         stop=10.0,
         step=0.5,
         value=4.0,
-        label="Initial position uncertainty (P0)",
+        label="$P_0$: Initial position uncertainty",
         show_value=True,
         debounce=True,
     )
@@ -1485,7 +1509,7 @@ def _(STEPS, TEACH_STEP, mo):
         stop=4.0,
         step=0.1,
         value=1.2,
-        label="Initial velocity uncertainty (P0)",
+        label="$P_0$: Initial velocity uncertainty",
         show_value=True,
         debounce=True,
     )
@@ -1511,21 +1535,24 @@ def _(STEPS, TEACH_STEP, mo):
 def _(
     initial_pos_std,
     initial_vel_std,
-    inspect_step,
     measurement_std,
     mo,
     process_std,
 ):
-    mo.hstack(
+    mo.vstack(
         [
-            process_std,
-            measurement_std,
-            initial_pos_std,
-            initial_vel_std,
-            inspect_step,
+            mo.hstack(
+                [process_std, measurement_std],
+                wrap=True,
+                align="start",
+            ),
+            mo.hstack(
+                [initial_pos_std, initial_vel_std],
+                wrap=True,
+                align="start",
+            ),
         ],
-        wrap=True,
-        align="start",
+        gap=0.75,
     )
     return
 
@@ -1597,9 +1624,12 @@ def _(
     FULL_LOOP_NONLINEAR_START,
     full_loop_run,
     full_loop_simulation,
+    interactive_settings,
+    interactive_step,
     inspect_step,
     mo,
     plot_full_loop,
+    plot_step_detail,
 ):
     mo.vstack(
         [
@@ -1607,12 +1637,14 @@ def _(
                 r"""
                 ## 7. The full loop over time
 
+                Everything up to this point has focused on one moment in the cycle. This plot shows the same predict-correct logic repeated over many timesteps.
+
                 In this example, the true motion is deliberately chosen in two phases:
 
                 - first a simple, piecewise-linear movement with a direction change,
                 - later a more curved motion that no longer matches our simple prediction model as well.
 
-                Measurements arrive at irregular timesteps, so prediction-only stretches and correction moments become easier to see.
+                Measurements arrive at irregular timesteps, so periods of growing uncertainty and moments of correction become easier to see.
                 """
             ),
             mo.ui.plotly(
@@ -1623,23 +1655,14 @@ def _(
                     FULL_LOOP_NONLINEAR_START,
                 )
             ),
-        ],
-        gap=1.0,
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(interactive_settings, interactive_step, mo, plot_step_detail):
-    mo.vstack(
-        [
             mo.md(
                 r"""
-                ## 8. One timestep in detail
+                Looking at the whole trajectory is useful, but the same run becomes easier to parse if we zoom into one selected timestep.
 
-                If the selected timestep has no measurement, the plot will show that the filter simply keeps the prediction.
+                If the selected timestep has no measurement, the filter simply keeps the prediction.
                 """
             ),
+            mo.hstack([inspect_step], align="start"),
             mo.ui.plotly(
                 plot_step_detail(interactive_step, interactive_settings.measurement_std)
             ),
@@ -1652,9 +1675,11 @@ def _(interactive_settings, interactive_step, mo, plot_step_detail):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 9. Minimal formulas after the intuition
+    ## 8. Minimal formulas after the intuition
 
     Only now do we introduce the equations, after the visual intuition is already in place.
+
+    The symbols map directly to the story above: $\mu$ is the estimate, $P$ is its uncertainty, $z$ is the measurement, and $K$ controls how strongly the estimate moves toward the measurement.
 
     Prediction:
 
@@ -1687,8 +1712,8 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(DT, mo):
-    mo.md(f"""
-    ## 10. Why the real robotics version uses matrices
+    mo.md(rf"""
+    ## 9. Why the real robotics version uses matrices
 
     We taught the intuition mostly through one coordinate, but the filter underneath is already a matrix model.
 
@@ -1698,12 +1723,14 @@ def _(DT, mo):
     x_t = [\text{{position}}_t, \text{{velocity}}_t]^T
     $$
 
+    That matters because real systems usually estimate several coupled quantities at once.
+
     In practice:
 
     - diagonal entries of a covariance matrix tell you the uncertainty of each state component,
     - off-diagonal entries tell you how errors in two components move together.
 
-    That is why ball tracking, obstacle tracking, and self-localization are naturally matrix-based.
+    In the matrices below, `A` moves the state forward, `B` applies control input, `Q` injects model uncertainty, and `R` encodes sensor noise. That is why ball tracking, obstacle tracking, and self-localization are naturally matrix-based.
     """)
     return
 
@@ -1719,20 +1746,15 @@ def _(matrices, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 11. Back to RoboCup
+    ## 10. Back to RoboCup
 
-    The same story extends directly to robotics tasks you actually care about:
+    The same ideas extend directly to robotics tasks you actually care about:
 
     - **ball tracking**: estimate position and velocity in 2D,
     - **opponent tracking**: estimate where another robot is moving,
     - **self-localization**: combine motion and landmark observations.
 
-    The details change, but the mental model stays the same:
-
-    - predict,
-    - measure,
-    - fuse,
-    - keep track of uncertainty.
+    The details change, but the mental model does not. In each case, the robot predicts, measures, fuses, and keeps track of uncertainty.
     """)
     return
 
@@ -1740,11 +1762,11 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 12. Outlook: EKF and UKF
+    ## 11. Outlook: EKF and UKF
 
     The standard Kalman filter assumes linear models.
 
-    Real robotics often breaks that assumption.
+    Real robotics often breaks that assumption. Once motion or sensing becomes noticeably curved, the linear story starts to fail.
 
     - **EKF**: linearize the nonlinear model around the current estimate
     - **UKF**: propagate representative sigma points instead of linearizing directly
@@ -1769,13 +1791,15 @@ def _(mo, plot_ukf_outlook):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 13. Closing thought
+    ## 12. Closing thought
 
     A Kalman filter is not just a set of equations.
 
     It is a principled answer to one engineering question:
 
     > how much should I trust what I expected, and how much should I trust what I just measured?
+
+    Once that question feels intuitive, the rest of the framework starts to make sense.
     """)
     return
 
